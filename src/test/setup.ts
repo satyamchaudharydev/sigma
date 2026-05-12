@@ -1,0 +1,8 @@
+import { afterEach } from 'vitest';
+import { cleanup } from '@testing-library/preact';
+
+afterEach(() => {
+  cleanup();
+  document.body.innerHTML = '';
+  document.head.innerHTML = '';
+});
