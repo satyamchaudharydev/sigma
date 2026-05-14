@@ -9,8 +9,14 @@ import type { CommentAttachment, CommentSnapshot, EditorSnapshot, ResolvedStartE
 
 function Root(props: { controller: EditorController; initialSnapshot: EditorSnapshot }) {
   const [snapshot, setSnapshot] = useState(props.initialSnapshot);
+  const lastVersionRef = useRef(props.controller.getSnapshotVersion());
 
-  useEffect(() => props.controller.subscribe(() => setSnapshot(props.controller.getSnapshot())), [props.controller]);
+  useEffect(() => props.controller.subscribe(() => {
+    const version = props.controller.getSnapshotVersion();
+    if (version === lastVersionRef.current) return;
+    lastVersionRef.current = version;
+    setSnapshot(props.controller.getSnapshot());
+  }), [props.controller]);
 
   const resolvedTheme = snapshot.options.theme === 'auto'
     ? (typeof window.matchMedia === 'function' && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')

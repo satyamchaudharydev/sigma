@@ -152,7 +152,7 @@ export function parseUnitValue(rawValue: string): { value: number | null; unit: 
 
   return {
     value: Number(match[1]),
-    unit: match[2] ?? 'px',
+    unit: match[2] ?? '',
     raw: value
   };
 }

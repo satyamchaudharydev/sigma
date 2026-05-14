@@ -35,13 +35,18 @@ export const VISUAL_PROPERTIES = [
   'border-style',
   'border-color'
 ] as const;
+export const TRANSFORM_PROPERTIES = [
+  'transform',
+  'perspective'
+] as const;
 
 export const SUPPORTED_PROPERTIES = [
   ...SIZE_PROPERTIES,
   ...SPACING_PROPERTIES,
   ...LAYOUT_PROPERTIES,
   ...TYPOGRAPHY_PROPERTIES,
-  ...VISUAL_PROPERTIES
+  ...VISUAL_PROPERTIES,
+  ...TRANSFORM_PROPERTIES
 ] as const;
 
 export type SupportedProperty = (typeof SUPPORTED_PROPERTIES)[number];

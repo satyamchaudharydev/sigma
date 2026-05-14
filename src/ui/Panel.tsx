@@ -6,9 +6,15 @@ import { parseBoxShadow, stringifyBoxShadow } from '../core/styles';
 import { adjustNumericCssValue, colorStringToHex, escapeHtml, getCssValueKind, parseUnitValue } from '../core/utils';
 
 type CssViewMode = 'defined' | 'computed';
-type CollapsedKey = 'background' | 'border' | 'shadow' | 'changes';
+type CollapsedKey = 'transform' | 'background' | 'border' | 'shadow' | 'changes';
 const DOCK_SIDES: PanelDockSide[] = ['left', 'right', 'top', 'bottom'];
 const PANEL_MODES: PanelDisplayMode[] = ['overlay', 'split'];
+const MIN_MAX_OPTIONS = [
+  { value: 'max-width', label: 'Max Width' },
+  { value: 'min-width', label: 'Min Width' },
+  { value: 'max-height', label: 'Max Height' },
+  { value: 'min-height', label: 'Min Height' }
+] as const;
 
 function highlightHtml(html: string): string {
   const escaped = escapeHtml(html);
@@ -22,7 +28,9 @@ export function Panel(props: { controller: EditorController; snapshot: EditorSna
   const [cssViewMode, setCssViewMode] = useState<CssViewMode>('defined');
   const [cssQuery, setCssQuery] = useState('');
   const [showMenu, setShowMenu] = useState(false);
+  const [showMinMaxMenu, setShowMinMaxMenu] = useState(false);
   const [collapsed, setCollapsed] = useState<Record<CollapsedKey, boolean>>({
+    transform: false,
     background: true,
     border: true,
     shadow: true,
@@ -33,15 +41,13 @@ export function Panel(props: { controller: EditorController; snapshot: EditorSna
     setCssViewMode('defined');
     setCssQuery('');
     setShowMenu(false);
+    setShowMinMaxMenu(false);
   }, [selection?.context.selector]);
 
-  if (!selection || !props.snapshot.isPanelOpen) {
-    return null;
-  }
-
-  const values = selection.values;
-  const changes = selection.context.changes;
   const cssEntries = useMemo(() => {
+    if (!selection) {
+      return [] as CssInspectorEntry[];
+    }
     const sourceEntries = cssViewMode === 'defined' ? selection.css.defined : selection.css.computed;
     const query = cssQuery.trim().toLowerCase();
     if (!query) {
@@ -53,8 +59,17 @@ export function Panel(props: { controller: EditorController; snapshot: EditorSna
       entry.value.toLowerCase().includes(query) ||
       entry.source?.toLowerCase().includes(query)
     );
-  }, [cssQuery, cssViewMode, selection.css.computed, selection.css.defined]);
+  }, [cssQuery, cssViewMode, selection?.css.computed, selection?.css.defined]);
 
+  const shadow = useMemo(() => parseBoxShadow(selection?.values['box-shadow'] ?? ''), [selection?.values['box-shadow']]);
+  const transform = useMemo(() => parseTransformState(selection?.values['transform'] ?? ''), [selection?.values['transform']]);
+
+  if (!selection || !props.snapshot.isPanelOpen) {
+    return null;
+  }
+
+  const values = selection.values;
+  const changes = selection.context.changes;
   const displayType = values['display'] === 'grid' ? 'grid' : 'stack';
   const panelLayout = props.snapshot.panelLayout;
   const isHorizontalDock = panelLayout.dockSide === 'left' || panelLayout.dockSide === 'right';
@@ -66,9 +81,12 @@ export function Panel(props: { controller: EditorController; snapshot: EditorSna
   const opacityPercent = Math.round((Number.parseFloat(values['opacity'] || '1') || 1) * 100);
   const radiusValue = parseUnitValue(values['border-radius']).value ?? 0;
   const fontSizeValue = parseUnitValue(values['font-size']).value ?? 14;
-  const shadow = useMemo(() => parseBoxShadow(values['box-shadow']), [values]);
   const gridColumns = getGridTrackCount(values['grid-template-columns']) ?? 4;
   const gridRows = getGridTrackCount(values['grid-template-rows']) ?? 2;
+  const minMaxKeys = MIN_MAX_OPTIONS
+    .map((option) => option.value)
+    .filter((property) => isActiveMinMaxValue(property, values[property]));
+  const availableMinMaxOptions = MIN_MAX_OPTIONS.filter((option) => !minMaxKeys.includes(option.value));
 
   const setValue = (property: string, value: string) => props.controller.updateStyle(property, value);
   const panelStyle = isHorizontalDock ? { width: `${panelLayout.size}px` } : { height: `${panelLayout.size}px` };
@@ -189,7 +207,7 @@ export function Panel(props: { controller: EditorController; snapshot: EditorSna
               </InspectorRow>
             </InspectorSection>
 
-            <InspectorSection title="Size" action="+">
+            <InspectorSection title="Size">
               <InspectorRow label="Width">
                 <DualControlRow>
                   <TextControl value={values['width']} onChange={(value) => setValue('width', value)} />
@@ -202,12 +220,45 @@ export function Panel(props: { controller: EditorController; snapshot: EditorSna
                   <SimpleSelect value="fit" options={[toOption('fill', 'Fill'), toOption('fit', 'Fit'), toOption('fixed', 'Fixed')]} disabled />
                 </DualControlRow>
               </InspectorRow>
-              <InspectorRow label="Min Max">
-                <DualControlRow>
-                  <IconGhost>↔</IconGhost>
-                  <TextControl value="" placeholder="Add..." disabled onChange={() => {}} />
-                </DualControlRow>
-              </InspectorRow>
+              {minMaxKeys.map((property) => (
+                <InspectorRow key={property} label={MIN_MAX_OPTIONS.find((option) => option.value === property)?.label ?? property}>
+                  <DualControlRow>
+                    <TextControl value={values[property]} onChange={(value) => setValue(property, value)} />
+                    <SimpleSelect value="fixed" options={[toOption('fill', 'Fill'), toOption('fit', 'Fit'), toOption('fixed', 'Fixed')]} disabled />
+                  </DualControlRow>
+                </InspectorRow>
+              ))}
+              {availableMinMaxOptions.length > 0 ? (
+                <InspectorRow label="Min Max">
+                  <div className="rve-add-control-wrap">
+                    <button
+                      type="button"
+                      className="rve-add-control"
+                      onClick={() => setShowMinMaxMenu((value) => !value)}
+                    >
+                      <IconGhost>↔</IconGhost>
+                      <span>Add...</span>
+                    </button>
+                    {showMinMaxMenu ? (
+                      <div className="rve-add-menu">
+                        {availableMinMaxOptions.map((option) => (
+                          <button
+                            key={option.value}
+                            type="button"
+                            className="rve-add-menu-item"
+                            onClick={() => {
+                              setShowMinMaxMenu(false);
+                              setValue(option.value, getDefaultMinMaxValue(option.value));
+                            }}
+                          >
+                            {option.label}
+                          </button>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+                </InspectorRow>
+              ) : null}
             </InspectorSection>
 
             <InspectorSection title="Layout">
@@ -259,12 +310,26 @@ export function Panel(props: { controller: EditorController; snapshot: EditorSna
                   disabled={isGrid}
                 />
               </InspectorRow>
-              <InspectorRow label="Gap">
-                <DualControlRow>
-                  <InlineNumberWithIcon icon="↔" value={values['column-gap']} onChange={(value) => setValue('column-gap', value)} />
-                  <InlineNumberWithIcon icon="↕" value={values['row-gap']} onChange={(value) => setValue('row-gap', value)} />
-                </DualControlRow>
-              </InspectorRow>
+              {!isGrid ? (
+                <InspectorRow label="Gap">
+                  <DualControlRow>
+                    <InlineNumberWithIcon icon="↔" value={values['column-gap']} onChange={(value) => setValue('column-gap', value)} />
+                    <InlineNumberWithIcon icon="↕" value={values['row-gap']} onChange={(value) => setValue('row-gap', value)} />
+                  </DualControlRow>
+                </InspectorRow>
+              ) : null}
+              {isGrid ? (
+                <GridOverview
+                  columns={gridColumns}
+                  rows={gridRows}
+                  columnGap={values['column-gap']}
+                  rowGap={values['row-gap']}
+                  onColumnsChange={(value) => setValue('grid-template-columns', `repeat(${Math.max(1, value)}, minmax(0, 1fr))`)}
+                  onRowsChange={(value) => setValue('grid-template-rows', `repeat(${Math.max(1, value)}, minmax(0, 1fr))`)}
+                  onColumnGapChange={(value) => setValue('column-gap', value)}
+                  onRowGapChange={(value) => setValue('row-gap', value)}
+                />
+              ) : null}
             </InspectorSection>
 
             <BoxModelSection
@@ -291,24 +356,6 @@ export function Panel(props: { controller: EditorController; snapshot: EditorSna
               onChange={(side, value) => setValue(`margin-${side}`, value)}
             />
 
-            <InspectorSection title="Grid Structure">
-              <InspectorRow label="Columns">
-                <StepperControl
-                  value={gridColumns}
-                  onChange={(value) => setValue('grid-template-columns', `repeat(${Math.max(1, value)}, minmax(0, 1fr))`)}
-                  disabled={!isGrid}
-                />
-              </InspectorRow>
-              <InspectorRow label="Rows">
-                <StepperControl
-                  value={gridRows}
-                  onChange={(value) => setValue('grid-template-rows', `repeat(${Math.max(1, value)}, minmax(0, 1fr))`)}
-                  disabled={!isGrid}
-                />
-              </InspectorRow>
-              <GridPreview columns={gridColumns} rows={gridRows} disabled={!isGrid} />
-            </InspectorSection>
-
             <InspectorSection title="Appearance">
               <DualFieldRow
                 leftLabel="Opacity"
@@ -317,6 +364,73 @@ export function Panel(props: { controller: EditorController; snapshot: EditorSna
                 rightControl={<InlineNumberWithUnit value={`${radiusValue}px`} unit="px" onChange={(value) => setValue('border-radius', value)} />}
               />
             </InspectorSection>
+
+            <CollapsibleSection
+              title="Transforms"
+              collapsed={collapsed.transform}
+              onToggle={() => setCollapsed((current) => ({ ...current, transform: !current.transform }))}
+            >
+              <InspectorRow label="Rotate" leading="+">
+                <DualControlRow>
+                  <InlineNumberWithUnit
+                    value={`${transform.rotate}deg`}
+                    unit="deg"
+                    disabled={transform.mode === '3d'}
+                    onChange={(value) => {
+                      const next = { ...transform, mode: '2d' as const, rotate: stripUnit(value, 'deg') };
+                      setValue('transform', stringifyTransformState(values['transform'] || '', next));
+                    }}
+                  />
+                  <SegmentedControl
+                    value={transform.mode}
+                    options={[toOption('2d', '2D'), toOption('3d', '3D')]}
+                    onChange={(value) => {
+                      const next = { ...transform, mode: value as '2d' | '3d' };
+                      setValue('transform', stringifyTransformState(values['transform'] || '', next));
+                    }}
+                  />
+                </DualControlRow>
+              </InspectorRow>
+              {transform.mode === '3d' ? (
+                <div className="rve-transform-axis-grid">
+                  {([
+                    ['rotateX', 'X'],
+                    ['rotateY', 'Y'],
+                    ['rotateZ', 'Z']
+                  ] as const).map(([key, label]) => (
+                    <div key={key} className="rve-transform-axis-cell">
+                      <input
+                        className="rve-inspector-input"
+                        value={transform[key]}
+                        onInput={(event) => {
+                          const next = {
+                            ...transform,
+                            mode: '3d' as const,
+                            [key]: stripUnit((event.currentTarget as HTMLInputElement).value, 'deg')
+                          };
+                          setValue('transform', stringifyTransformState(values['transform'] || '', next));
+                        }}
+                      />
+                      <span className="rve-transform-axis-label">{label}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+              <InspectorRow label="Perspective" leading="+">
+                <DualControlRow>
+                  <TextControl value={values['perspective']} onChange={(value) => setValue('perspective', value)} />
+                  <input
+                    className="rve-range"
+                    type="range"
+                    min="0"
+                    max="3000"
+                    step="1"
+                    value={String((parseUnitValue(values['perspective']).value ?? Number.parseFloat(values['perspective'])) || 0)}
+                    onInput={(event) => setValue('perspective', `${(event.currentTarget as HTMLInputElement).value}px`)}
+                  />
+                </DualControlRow>
+              </InspectorRow>
+            </CollapsibleSection>
 
             <InspectorSection title="Text">
               <DualControlRow>
@@ -600,10 +714,13 @@ function CollapsibleSection(props: { title: string; children: ComponentChildren;
   );
 }
 
-function InspectorRow(props: { label: string; children: ComponentChildren }) {
+function InspectorRow(props: { label: string; children: ComponentChildren; leading?: string }) {
   return (
     <div className="rve-inspector-row">
-      <div className="rve-inspector-label">{props.label}</div>
+      <div className="rve-inspector-label">
+        {props.leading ? <span className="rve-inspector-leading">{props.leading}</span> : null}
+        <span>{props.label}</span>
+      </div>
       <div className="rve-inspector-control">{props.children}</div>
     </div>
   );
@@ -724,22 +841,154 @@ function InlineNumberWithUnit(props: { value: string; unit: string; onChange: (v
   );
 }
 
-function StepperControl(props: { value: number; onChange: (value: number) => void; disabled?: boolean }) {
+function GridOverview(props: {
+  columns: number;
+  rows: number;
+  columnGap: string;
+  rowGap: string;
+  onColumnsChange: (value: number) => void;
+  onRowsChange: (value: number) => void;
+  onColumnGapChange: (value: string) => void;
+  onRowGapChange: (value: string) => void;
+}) {
+  const [showDimensions, setShowDimensions] = useState(false);
+  const [previewSize, setPreviewSize] = useState<{ columns: number; rows: number } | null>(null);
+  const activeColumns = previewSize?.columns ?? props.columns;
+  const activeRows = previewSize?.rows ?? props.rows;
+
   return (
-    <div className="rve-stepper">
-      <button type="button" className="rve-stepper-button" disabled={props.disabled} onClick={() => props.onChange(props.value - 1)}>−</button>
-      <div className="rve-stepper-value">{props.value}</div>
-      <button type="button" className="rve-stepper-button" disabled={props.disabled} onClick={() => props.onChange(props.value + 1)}>+</button>
+    <div className="rve-grid-overview">
+      <div className="rve-grid-summary">
+        <div className="rve-grid-summary-block">
+          <div className="rve-grid-mini-label">Grid</div>
+          <button type="button" className="rve-grid-summary-card" onClick={() => setShowDimensions((value) => !value)}>
+            <span>{props.columns} × {props.rows}</span>
+          </button>
+          {showDimensions ? (
+            <div className="rve-grid-dimensions-popover">
+              <div className="rve-grid-mini-label">Dimensions</div>
+              <div className="rve-grid-dimension-row">
+                <GridCountInput icon="▯▯" value={activeColumns} onChange={props.onColumnsChange} />
+                <span className="rve-grid-times">×</span>
+                <GridCountInput icon="▭▭" value={activeRows} onChange={props.onRowsChange} />
+              </div>
+              <GridPreview
+                columns={props.columns}
+                rows={props.rows}
+                previewColumns={previewSize?.columns ?? null}
+                previewRows={previewSize?.rows ?? null}
+                onPreviewChange={(columns, rows) => setPreviewSize({ columns, rows })}
+                onPreviewEnd={() => setPreviewSize(null)}
+                onCommit={(columns, rows) => {
+                  props.onColumnsChange(columns);
+                  props.onRowsChange(rows);
+                  setPreviewSize(null);
+                }}
+              />
+            </div>
+          ) : null}
+        </div>
+        <div className="rve-grid-summary-block">
+          <div className="rve-grid-mini-label">Gap</div>
+          <div className="rve-grid-gap-stack">
+            <GridMetricInput icon="▭" value={props.rowGap} onChange={props.onRowGapChange} />
+            <GridMetricInput icon="││" value={props.columnGap} onChange={props.onColumnGapChange} />
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
 
-function GridPreview(props: { columns: number; rows: number; disabled?: boolean }) {
-  const total = Math.max(1, Math.min(12, props.columns)) * Math.max(1, Math.min(4, props.rows));
+function GridMetricInput(props: { icon: string; value: string; onChange: (value: string) => void }) {
+  const parsed = parseUnitValue(props.value);
+  const displayValue = parsed.value === null ? props.value.replace('px', '') : String(parsed.value);
+
   return (
-    <div className="rve-grid-preview" data-disabled={props.disabled ? 'true' : 'false'}>
+    <div className="rve-grid-metric-card">
+      <span className="rve-grid-metric-icon">{props.icon}</span>
+      <input
+        className="rve-grid-metric-input"
+        value={displayValue}
+        onInput={(event) => {
+          const next = (event.currentTarget as HTMLInputElement).value.trim();
+          props.onChange(next ? `${next}px` : '');
+        }}
+      />
+    </div>
+  );
+}
+
+function GridCountInput(props: { icon: string; value: number; onChange: (value: number) => void }) {
+  return (
+    <div className="rve-grid-metric-card">
+      <span className="rve-grid-metric-icon">{props.icon}</span>
+      <input
+        className="rve-grid-metric-input"
+        value={String(props.value)}
+        onInput={(event) => {
+          const numeric = Number.parseInt((event.currentTarget as HTMLInputElement).value, 10);
+          props.onChange(Number.isFinite(numeric) ? Math.max(1, numeric) : 1);
+        }}
+      />
+    </div>
+  );
+}
+
+function GridPreview(props: {
+  columns: number;
+  rows: number;
+  previewColumns?: number | null;
+  previewRows?: number | null;
+  disabled?: boolean;
+  onPreviewChange?: (columns: number, rows: number) => void;
+  onPreviewEnd?: () => void;
+  onCommit?: (columns: number, rows: number) => void;
+}) {
+  const committedColumns = Math.max(1, Math.min(12, props.columns));
+  const committedRows = Math.max(1, Math.min(8, props.rows));
+  const visibleColumns = Math.max(1, Math.min(12, props.previewColumns ?? props.columns));
+  const visibleRows = Math.max(1, Math.min(8, props.previewRows ?? props.rows));
+  const total = 12 * 8;
+
+  const isWithinBounds = (index: number, columns: number, rows: number) => {
+    const column = (index % 12) + 1;
+    const row = Math.floor(index / 12) + 1;
+    return column <= columns && row <= rows;
+  };
+
+  return (
+    <div
+      className="rve-grid-preview"
+      data-disabled={props.disabled ? 'true' : 'false'}
+      style={{ gridTemplateColumns: 'repeat(12, minmax(0, 1fr))' }}
+      onMouseLeave={() => props.onPreviewEnd?.()}
+    >
+      <div
+        className="rve-grid-preview-label"
+        style={{ left: `${((Math.min(12, visibleColumns) - 1) / 12) * 100}%` }}
+      >
+        {visibleColumns} × {visibleRows}
+      </div>
       {Array.from({ length: total }).map((_, index) => (
-        <span key={index} className="rve-grid-preview-cell" />
+        <span
+          key={index}
+          className="rve-grid-preview-cell"
+          data-active={isWithinBounds(index, visibleColumns, visibleRows) ? 'true' : 'false'}
+          data-committed={isWithinBounds(index, committedColumns, committedRows) ? 'true' : 'false'}
+          onMouseEnter={() => {
+            if (props.disabled) return;
+            const row = Math.floor(index / 12) + 1;
+            const column = (index % 12) + 1;
+            props.onPreviewChange?.(column, row);
+          }}
+          onClick={() => {
+            if (props.disabled) return;
+            const row = Math.floor(index / 12) + 1;
+            const column = (index % 12) + 1;
+            props.onCommit?.(column, row);
+          }}
+        />
       ))}
     </div>
   );
@@ -835,6 +1084,31 @@ function capitalize(value: string): string {
   return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
+function stripUnit(value: string, unit: string): string {
+  return value.trim().replace(new RegExp(`${unit}$`, 'i'), '') || '0';
+}
+
+function isActiveMinMaxValue(property: string, value: string): boolean {
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) {
+    return false;
+  }
+
+  if (property === 'min-width' || property === 'min-height') {
+    return normalized !== '0px' && normalized !== '0' && normalized !== 'auto';
+  }
+
+  return normalized !== 'none' && normalized !== 'auto';
+}
+
+function getDefaultMinMaxValue(property: string): string {
+  if (property === 'max-width' || property === 'max-height') {
+    return '320px';
+  }
+
+  return '100px';
+}
+
 function getGridTrackCount(value: string): number | null {
   const trimmed = value.trim();
   if (!trimmed) {
@@ -846,7 +1120,8 @@ function getGridTrackCount(value: string): number | null {
     return Number.parseInt(repeatMatch[1], 10);
   }
 
-  return trimmed.split(/\s+/).filter(Boolean).length || null;
+  const tracks = splitGridTrackList(trimmed).filter((track) => !/^\[.*\]$/.test(track));
+  return tracks.length || null;
 }
 
 function compressBoxValues(values: { top: string; right: string; bottom: string; left: string }): string {
@@ -855,4 +1130,120 @@ function compressBoxValues(values: { top: string; right: string; bottom: string;
   }
 
   return [values.top, values.right, values.bottom, values.left].join(' ').trim();
+}
+
+function splitGridTrackList(value: string): string[] {
+  const tracks: string[] = [];
+  let current = '';
+  let depth = 0;
+  let bracketDepth = 0;
+
+  for (const char of value) {
+    if (char === '(') depth += 1;
+    if (char === ')') depth = Math.max(0, depth - 1);
+    if (char === '[') bracketDepth += 1;
+    if (char === ']') bracketDepth = Math.max(0, bracketDepth - 1);
+
+    if (char === ' ' && depth === 0 && bracketDepth === 0) {
+      if (current.trim()) {
+        tracks.push(current.trim());
+        current = '';
+      }
+      continue;
+    }
+
+    current += char;
+  }
+
+  if (current.trim()) {
+    tracks.push(current.trim());
+  }
+
+  return tracks.filter(Boolean);
+}
+
+type TransformMode = '2d' | '3d';
+
+type TransformState = {
+  mode: TransformMode;
+  rotate: string;
+  rotateX: string;
+  rotateY: string;
+  rotateZ: string;
+};
+
+function parseTransformState(rawValue: string): TransformState {
+  const tokens = parseTransformTokens(rawValue);
+  const getAngle = (name: string) => {
+    const token = tokens.find((entry) => entry.name.toLowerCase() === name.toLowerCase());
+    if (!token) return '0';
+    const match = token.args.match(/(-?\d*\.?\d+)\s*deg/i);
+    return match?.[1] ?? '0';
+  };
+
+  const has3d = tokens.some((token) => ['rotatex', 'rotatey', 'rotatez'].includes(token.name.toLowerCase()));
+
+  return {
+    mode: has3d ? '3d' : '2d',
+    rotate: getAngle('rotate'),
+    rotateX: getAngle('rotateX'),
+    rotateY: getAngle('rotateY'),
+    rotateZ: getAngle('rotateZ')
+  };
+}
+
+function stringifyTransformState(rawValue: string, state: TransformState): string {
+  const tokens = parseTransformTokens(rawValue);
+  const desiredTokens = state.mode === '3d'
+    ? [
+      `rotateX(${sanitizeAngle(state.rotateX)}deg)`,
+      `rotateY(${sanitizeAngle(state.rotateY)}deg)`,
+      `rotateZ(${sanitizeAngle(state.rotateZ)}deg)`
+    ]
+    : [`rotate(${sanitizeAngle(state.rotate)}deg)`];
+  const rotateNames = new Set(['rotate', 'rotatex', 'rotatey', 'rotatez']);
+  const nextTokens: string[] = [];
+  let inserted = false;
+
+  for (const token of tokens) {
+    if (rotateNames.has(token.name.toLowerCase())) {
+      if (!inserted) {
+        nextTokens.push(...desiredTokens);
+        inserted = true;
+      }
+      continue;
+    }
+
+    nextTokens.push(token.raw);
+  }
+
+  if (!inserted) {
+    nextTokens.push(...desiredTokens);
+  }
+
+  return nextTokens.join(' ').trim();
+}
+
+function parseTransformTokens(rawValue: string): Array<{ raw: string; name: string; args: string }> {
+  const tokens: Array<{ raw: string; name: string; args: string }> = [];
+  const pattern = /([a-zA-Z0-9]+)\(([^()]*)\)/g;
+
+  for (const match of rawValue.matchAll(pattern)) {
+    tokens.push({
+      raw: match[0],
+      name: match[1],
+      args: match[2]
+    });
+  }
+
+  return tokens;
+}
+
+function sanitizeAngle(value: string): string {
+  const numeric = Number.parseFloat(value);
+  if (!Number.isFinite(numeric)) {
+    return '0';
+  }
+
+  return `${Math.round(numeric * 1000) / 1000}`;
 }

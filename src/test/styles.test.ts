@@ -45,6 +45,21 @@ describe('style session', () => {
     expect(element.style.getPropertyValue('animation-duration')).toBe('0.3s');
   });
 
+  it('tracks transform properties through the preview session', () => {
+    const element = document.createElement('div');
+    element.style.setProperty('transform', 'translateX(12px)');
+    document.body.appendChild(element);
+
+    const session = createStyleSession(element);
+    applyStyleValue(session, 'transform', 'translateX(12px) rotate(8deg)');
+    applyStyleValue(session, 'perspective', '600px');
+
+    expect(getStyleChanges(session)).toEqual([
+      { property: 'perspective', oldValue: '(empty)', newValue: '600px' },
+      { property: 'transform', oldValue: 'translateX(12px)', newValue: 'translateX(12px) rotate(8deg)' }
+    ]);
+  });
+
   it('parses and stringifies simple box shadows', () => {
     const parsed = parseBoxShadow('rgba(0, 0, 0, 0.2) 0px 8px 24px 0px');
     expect(parsed.blur).toBe('24px');

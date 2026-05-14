@@ -48,6 +48,7 @@ export interface MountAdapter {
 interface CommentRecord {
   id: string;
   element: HTMLElement;
+  selector: string;
   target: CommentTarget;
   text: string;
   attachment: CommentAttachment | null;
@@ -59,6 +60,7 @@ interface CommentDraftState {
   mode: 'create' | 'edit';
   commentId: string | null;
   element: HTMLElement;
+  selector: string;
   target: CommentTarget;
   text: string;
   attachment: CommentAttachment | null;
@@ -89,6 +91,8 @@ export class EditorController implements EditorInstance {
   private message: string | null = null;
   private messageTimeout: number | null = null;
   private isDestroyed = false;
+  private snapshotVersion = 0;
+  private viewportChangeFrame: number | null = null;
 
   constructor(options: ResolvedStartEditorOptions, host: HTMLElement, mountAdapter: MountAdapter) {
     this.options = options;
@@ -142,6 +146,9 @@ export class EditorController implements EditorInstance {
     document.removeEventListener('keydown', this.handleGlobalKeyDown, true);
     window.removeEventListener('scroll', this.handleViewportChange, true);
     window.removeEventListener('resize', this.handleViewportChange, true);
+    if (this.viewportChangeFrame !== null) {
+      cancelAnimationFrame(this.viewportChangeFrame);
+    }
     this.resetDocumentLayout();
     this.layoutStyleElement.remove();
     if (this.messageTimeout !== null) {
@@ -205,6 +212,10 @@ export class EditorController implements EditorInstance {
     return () => {
       this.subscriptions.delete(callback);
     };
+  }
+
+  getSnapshotVersion(): number {
+    return this.snapshotVersion;
   }
 
   getSnapshot(): EditorSnapshot {
@@ -294,7 +305,8 @@ export class EditorController implements EditorInstance {
 
     const metadata = await resolveFiberMetadata(element);
     const target = this.createCommentTarget(element, metadata);
-    const existing = this.comments.find((comment) => comment.element === element);
+    const selector = getElementSelector(element);
+    const existing = this.comments.find((comment) => comment.element === element || (selector && comment.selector === selector));
 
     this.commentPicker.close();
     this.isCommentModeOpen = false;
@@ -303,6 +315,7 @@ export class EditorController implements EditorInstance {
       mode: existing ? 'edit' : 'create',
       commentId: existing?.id ?? null,
       element,
+      selector,
       target,
       text: existing?.text ?? '',
       attachment: existing?.attachment ?? null
@@ -323,6 +336,7 @@ export class EditorController implements EditorInstance {
       mode: 'edit',
       commentId: comment.id,
       element: comment.element,
+      selector: comment.selector,
       target: comment.target,
       text: comment.text,
       attachment: comment.attachment
@@ -379,6 +393,7 @@ export class EditorController implements EditorInstance {
       this.comments.push({
         id: `comment-${timestamp}-${Math.random().toString(36).slice(2, 8)}`,
         element: this.commentDraft.element,
+        selector: this.commentDraft.selector,
         target: this.commentDraft.target,
         text,
         attachment: this.commentDraft.attachment,
@@ -455,11 +470,15 @@ export class EditorController implements EditorInstance {
   }
 
   private handleViewportChange = (): void => {
-    this.panelSize = this.clampPanelSize(this.panelSize, this.panelDockSide);
-    this.applyPanelLayout();
-    if (this.hoverOverlay || this.session || this.comments.length > 0 || this.commentDraft) {
-      this.notify();
-    }
+    if (this.viewportChangeFrame !== null) return;
+    this.viewportChangeFrame = requestAnimationFrame(() => {
+      this.viewportChangeFrame = null;
+      this.panelSize = this.clampPanelSize(this.panelSize, this.panelDockSide);
+      this.applyPanelLayout();
+      if (this.hoverOverlay || this.session || this.comments.length > 0 || this.commentDraft) {
+        this.notify();
+      }
+    });
   };
 
   private handleGlobalKeyDown = (event: KeyboardEvent): void => {
@@ -523,6 +542,14 @@ export class EditorController implements EditorInstance {
     this.notify();
   }
 
+  private resolveCommentRect(element: HTMLElement, selector: string): RectBounds {
+    const el = element.isConnected
+      ? element
+      : (selector ? document.querySelector(selector) as HTMLElement | null : null);
+    const rect = el?.getBoundingClientRect() ?? new DOMRect();
+    return { top: rect.top, left: rect.left, width: rect.width, height: rect.height };
+  }
+
   private getSelectionSnapshot(): SelectionSnapshot | null {
     if (!this.session || !this.selectionContext) {
       return null;
@@ -549,7 +576,7 @@ export class EditorController implements EditorInstance {
       text: comment.text,
       attachment: comment.attachment,
       target: comment.target,
-      rect: rectToBounds(comment.element.getBoundingClientRect())
+      rect: this.resolveCommentRect(comment.element, comment.selector)
     }));
   }
 
@@ -562,7 +589,7 @@ export class EditorController implements EditorInstance {
       mode: this.commentDraft.mode,
       commentId: this.commentDraft.commentId,
       targetLabel: this.commentDraft.target.label,
-      rect: rectToBounds(this.commentDraft.element.getBoundingClientRect()),
+      rect: this.resolveCommentRect(this.commentDraft.element, this.commentDraft.selector),
       text: this.commentDraft.text,
       attachment: this.commentDraft.attachment
     };
@@ -696,6 +723,7 @@ export class EditorController implements EditorInstance {
   }
 
   private notify(): void {
+    this.snapshotVersion += 1;
     for (const callback of this.subscriptions) {
       callback();
     }
