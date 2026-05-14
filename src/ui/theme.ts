@@ -679,6 +679,25 @@ export const editorStyles = /* css */ `
     color: var(--rve-color-text-soft);
   }
 
+  .rve-inspector-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .rve-inspector-leading {
+    width: 18px;
+    height: 18px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--rve-color-text-soft);
+    font-size: 13px;
+    line-height: 1;
+  }
+
   .rve-inspector-sub-label {
     margin-bottom: 6px;
   }
@@ -686,7 +705,8 @@ export const editorStyles = /* css */ `
   .rve-inspector-control,
   .rve-dual-control,
   .rve-inspector-dual,
-  .rve-color-control {
+  .rve-color-control,
+  .rve-add-control-wrap {
     display: flex;
     gap: 10px;
     min-width: 0;
@@ -717,6 +737,12 @@ export const editorStyles = /* css */ `
   .rve-inspector-select:focus {
     border-color: var(--rve-color-border-strong);
     background: rgba(255, 255, 255, 0.08);
+  }
+
+  .rve-range {
+    width: 100%;
+    accent-color: var(--rve-color-blue);
+    background: transparent;
   }
 
   .rve-inspector-input:disabled,
@@ -780,6 +806,109 @@ export const editorStyles = /* css */ `
     color: var(--rve-color-text-muted);
   }
 
+  .rve-add-control-wrap {
+    position: relative;
+    width: 100%;
+  }
+
+  .rve-add-control {
+    width: 100%;
+    min-height: 40px;
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    padding: 0 12px;
+    border: 0;
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.07);
+    color: var(--rve-color-text-soft);
+    font: inherit;
+    font-size: 12px;
+    cursor: pointer;
+  }
+
+  .rve-add-control .rve-icon-ghost {
+    width: 28px;
+    min-width: 28px;
+    height: 28px;
+  }
+
+  .rve-add-menu {
+    position: absolute;
+    top: calc(100% + 8px);
+    left: 0;
+    z-index: 6;
+    width: 180px;
+    padding: 8px;
+    border-radius: 18px;
+    background: rgba(38, 38, 38, 0.98);
+    border: 1px solid var(--rve-color-border);
+    box-shadow: var(--rve-shadow-toolbar);
+  }
+
+  .rve-add-menu-item {
+    width: 100%;
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+    padding: 0 14px;
+    border: 0;
+    border-radius: 12px;
+    background: transparent;
+    color: var(--rve-color-text);
+    font: inherit;
+    font-size: 13px;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .rve-add-menu-item:hover {
+    background: rgba(255, 255, 255, 0.06);
+  }
+
+  .rve-add-menu-item:disabled {
+    opacity: 0.38;
+    cursor: not-allowed;
+  }
+
+  .rve-transform-axis-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0;
+    margin: -2px 0 14px 122px;
+    border-radius: 12px;
+    overflow: hidden;
+    border: 1px solid var(--rve-color-border);
+    background: rgba(255, 255, 255, 0.04);
+  }
+
+  .rve-transform-axis-cell {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 0 0 10px;
+    border-right: 1px solid var(--rve-color-border);
+  }
+
+  .rve-transform-axis-cell:last-child {
+    border-right: 0;
+  }
+
+  .rve-transform-axis-cell .rve-inspector-input {
+    min-height: 44px;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    text-align: center;
+  }
+
+  .rve-transform-axis-label {
+    color: var(--rve-color-text-muted);
+    font-size: 12px;
+    text-align: center;
+    letter-spacing: 0.08em;
+  }
+
   .rve-stepper {
     display: grid;
     grid-template-columns: 32px 1fr 32px;
@@ -820,8 +949,159 @@ export const editorStyles = /* css */ `
   .rve-grid-preview-cell {
     height: 18px;
     border-radius: 4px;
+    background: transparent;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+  }
+
+  .rve-grid-preview-cell[data-active="true"] {
     background: rgba(34, 150, 255, 0.12);
-    border: 1px solid rgba(34, 150, 255, 0.45);
+    border-color: rgba(34, 150, 255, 0.6);
+  }
+
+  .rve-grid-overview {
+    display: grid;
+    gap: 16px;
+  }
+
+  .rve-grid-summary {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
+    gap: 12px;
+  }
+
+  .rve-grid-summary-block,
+  .rve-grid-dimensions {
+    display: grid;
+    position: relative;
+    gap: 8px;
+  }
+
+  .rve-grid-mini-label {
+    color: var(--rve-color-text-soft);
+    font-size: 12px;
+    font-weight: 600;
+  }
+
+  .rve-grid-summary-card {
+    min-height: 92px;
+    display: grid;
+    place-items: center;
+    border-radius: 14px;
+    background: rgba(255, 255, 255, 0.06);
+    color: rgba(255, 255, 255, 0.56);
+    border: 0;
+    font: inherit;
+    font-size: 18px;
+    font-weight: 500;
+    cursor: pointer;
+  }
+
+  .rve-grid-gap-stack {
+    display: grid;
+    gap: 8px;
+  }
+
+  .rve-grid-metric-card {
+    min-height: 44px;
+    display: grid;
+    grid-template-columns: 34px minmax(0, 1fr);
+    align-items: center;
+    gap: 8px;
+    padding: 0 12px;
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.06);
+  }
+
+  .rve-grid-metric-icon {
+    color: var(--rve-color-text-soft);
+    font-size: 18px;
+    letter-spacing: -0.08em;
+    text-align: center;
+  }
+
+  .rve-grid-metric-input {
+    width: 100%;
+    border: 0;
+    background: transparent;
+    color: var(--rve-color-text);
+    font: inherit;
+    font-size: 16px;
+    outline: none;
+  }
+
+  .rve-grid-dimension-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+    gap: 12px;
+    align-items: center;
+  }
+
+  .rve-grid-dimensions-popover {
+    position: absolute;
+    bottom: calc(100% + 10px);
+    left: 0;
+    min-width: 320px;
+    z-index: 6;
+    display: grid;
+    gap: 12px;
+    padding: 12px;
+    border-radius: 16px;
+    background: rgba(18, 18, 18, 0.98);
+    border: 1px solid var(--rve-color-border);
+    box-shadow: var(--rve-shadow-toolbar);
+  }
+
+  .rve-grid-times {
+    color: var(--rve-color-text-muted);
+    font-size: 28px;
+    line-height: 1;
+  }
+
+  .rve-grid-dimensions-popover .rve-grid-preview {
+    padding: 0;
+    gap: 4px;
+    background: transparent;
+    position: relative;
+  }
+
+  .rve-grid-dimensions-popover .rve-grid-preview-cell {
+    height: 26px;
+    border-radius: 6px;
+    transition: background 120ms ease, border-color 120ms ease, box-shadow 120ms ease, transform 120ms ease;
+    cursor: pointer;
+  }
+
+  .rve-grid-dimensions-popover .rve-grid-preview-cell:hover {
+    transform: translateY(-1px);
+  }
+
+  .rve-grid-dimensions-popover .rve-grid-preview-cell[data-committed="true"] {
+    background: rgba(34, 150, 255, 0.08);
+    border-color: rgba(34, 150, 255, 0.3);
+  }
+
+  .rve-grid-dimensions-popover .rve-grid-preview-cell[data-active="true"] {
+    background: rgba(34, 150, 255, 0.16);
+    border-color: rgba(34, 150, 255, 0.88);
+    box-shadow: 0 0 0 1px rgba(34, 150, 255, 0.2), 0 0 16px rgba(34, 150, 255, 0.18);
+  }
+
+  .rve-grid-preview-label {
+    position: absolute;
+    top: -34px;
+    left: 0;
+    padding: 6px 10px;
+    border-radius: 999px;
+    background: rgba(10, 10, 10, 0.92);
+    border: 1px solid rgba(34, 150, 255, 0.34);
+    color: rgba(255, 255, 255, 0.92);
+    font-size: 11px;
+    font-weight: 700;
+    line-height: 1;
+    pointer-events: none;
+    box-shadow: 0 10px 24px rgba(0, 0, 0, 0.28);
+    transform: translateX(-12%);
+    white-space: nowrap;
   }
 
   .rve-box-model {
