@@ -1,4 +1,5 @@
 export interface StartEditorOptions {
+  position?: 'bottom-center';
   theme?: 'light' | 'dark' | 'auto';
   shortcut?: string;
 }
@@ -70,6 +71,7 @@ export interface ParsedShortcut {
 }
 
 export interface ResolvedStartEditorOptions {
+  position: 'bottom-center';
   theme: 'light' | 'dark' | 'auto';
   shortcut: string;
   parsedShortcut: ParsedShortcut;

@@ -16,8 +16,8 @@ describe('buildAgentPrompt', () => {
     });
 
     expect(prompt).toContain('Component: HeroCard');
-    expect(prompt).toContain('`src/components/HeroCard.tsx` line 42');
-    expect(prompt).not.toContain('Source metadata was incomplete');
+    expect(prompt).toContain('File: src/components/HeroCard.tsx (line 42)');
+    expect(prompt).not.toContain('Source metadata was not fully available');
   });
 
   it('falls back gracefully when metadata is unavailable', () => {
@@ -35,7 +35,7 @@ describe('buildAgentPrompt', () => {
 
     expect(prompt).toContain('Component: Unavailable');
     expect(prompt).toContain('File: Unavailable');
-    expect(prompt).toContain('Source metadata was incomplete');
+    expect(prompt).toContain('Source metadata was not fully available');
   });
 
   it('includes comment text and attachment data', () => {
@@ -61,7 +61,7 @@ describe('buildAgentPrompt', () => {
       }]
     });
 
-    expect(prompt).toContain('## Review Comments');
+    expect(prompt).toContain('Comments:');
     expect(prompt).toContain('Make this card feel more editorial.');
     expect(prompt).toContain('data:image/png;base64,abc123');
   });

@@ -35,18 +35,13 @@ export const VISUAL_PROPERTIES = [
   'border-style',
   'border-color'
 ] as const;
-export const TRANSFORM_PROPERTIES = [
-  'transform',
-  'perspective'
-] as const;
 
 export const SUPPORTED_PROPERTIES = [
   ...SIZE_PROPERTIES,
   ...SPACING_PROPERTIES,
   ...LAYOUT_PROPERTIES,
   ...TYPOGRAPHY_PROPERTIES,
-  ...VISUAL_PROPERTIES,
-  ...TRANSFORM_PROPERTIES
+  ...VISUAL_PROPERTIES
 ] as const;
 
 export type SupportedProperty = (typeof SUPPORTED_PROPERTIES)[number];
@@ -68,14 +63,6 @@ export interface BoxShadowValue {
   blur: string;
   spread: string;
   color: string;
-}
-
-export interface TransformValue {
-  mode: '2d' | '3d';
-  rotate: string;
-  rotateX: string;
-  rotateY: string;
-  rotateZ: string;
 }
 
 export function createStyleSession(element: HTMLElement): StyleSession {
@@ -201,35 +188,6 @@ export function isLengthLikeValue(value: string): boolean {
   return parsed.value !== null || Boolean(parsed.keyword);
 }
 
-export function parseTransformValue(rawValue: string): TransformValue {
-  const value = rawValue.trim();
-  const rotate2dMatch = value.match(/rotate\((-?\d*\.?\d+)deg\)/i);
-  const rotateXMatch = value.match(/rotateX\((-?\d*\.?\d+)deg\)/i);
-  const rotateYMatch = value.match(/rotateY\((-?\d*\.?\d+)deg\)/i);
-  const rotateZMatch = value.match(/rotateZ\((-?\d*\.?\d+)deg\)/i);
-  const has3d = Boolean(rotateXMatch || rotateYMatch || rotateZMatch);
-
-  return {
-    mode: has3d ? '3d' : '2d',
-    rotate: rotate2dMatch?.[1] ?? '0',
-    rotateX: rotateXMatch?.[1] ?? '0',
-    rotateY: rotateYMatch?.[1] ?? '0',
-    rotateZ: rotateZMatch?.[1] ?? '0'
-  };
-}
-
-export function stringifyTransformValue(value: TransformValue): string {
-  if (value.mode === '3d') {
-    return [
-      `rotateX(${sanitizeAngle(value.rotateX)}deg)`,
-      `rotateY(${sanitizeAngle(value.rotateY)}deg)`,
-      `rotateZ(${sanitizeAngle(value.rotateZ)}deg)`
-    ].join(' ');
-  }
-
-  return `rotate(${sanitizeAngle(value.rotate)}deg)`;
-}
-
 function ensureBaseline(session: StyleSession, property: string): StyleBaseline {
   const existing = session.baselines.get(property);
   if (existing) {
@@ -243,13 +201,4 @@ function ensureBaseline(session: StyleSession, property: string): StyleBaseline 
 
   session.baselines.set(property, baseline);
   return baseline;
-}
-
-function sanitizeAngle(value: string): string {
-  const numeric = Number.parseFloat(value);
-  if (!Number.isFinite(numeric)) {
-    return '0';
-  }
-
-  return `${Math.round(numeric * 1000) / 1000}`;
 }

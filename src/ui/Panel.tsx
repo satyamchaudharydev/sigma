@@ -1,48 +1,28 @@
 import { useEffect, useMemo, useState } from 'preact/hooks';
+import type { ComponentChildren } from 'preact';
 import type { CssInspectorEntry, EditorSnapshot, PanelDisplayMode, PanelDockSide } from '../types';
 import type { EditorController } from '../core/controller';
-import { parseBoxShadow, parseTransformValue, stringifyBoxShadow, stringifyTransformValue } from '../core/styles';
-import { parseUnitValue } from '../core/utils';
-import {
-  CollapsibleSection,
-  ColorTextControl,
-  DualControlRow,
-  DualFieldRow,
-  IconGhost,
-  InlineNumberWithIcon,
-  InlineNumberWithUnit,
-  InspectorRow,
-  InspectorSection,
-  SegmentedControl,
-  SimpleSelect,
-  TextControl,
-  capitalize,
-  stripUnit,
-  toOption
-} from './controls';
-import { CssInspector, highlightHtml } from './CssInspector';
-import { GridOverview } from './GridSection';
-import { BoxModelSection } from './BoxModelSection';
+import { parseBoxShadow, stringifyBoxShadow } from '../core/styles';
+import { adjustNumericCssValue, colorStringToHex, escapeHtml, getCssValueKind, parseUnitValue } from '../core/utils';
 
 type CssViewMode = 'defined' | 'computed';
-type CollapsedKey = 'transform' | 'background' | 'border' | 'shadow' | 'changes';
+type CollapsedKey = 'background' | 'border' | 'shadow' | 'changes';
 const DOCK_SIDES: PanelDockSide[] = ['left', 'right', 'top', 'bottom'];
 const PANEL_MODES: PanelDisplayMode[] = ['overlay', 'split'];
-const MIN_MAX_OPTIONS = [
-  { value: 'max-width', label: 'Max Width' },
-  { value: 'min-width', label: 'Min Width' },
-  { value: 'max-height', label: 'Max Height' },
-  { value: 'min-height', label: 'Min Height' }
-] as const;
+
+function highlightHtml(html: string): string {
+  const escaped = escapeHtml(html);
+  return escaped
+    .replace(/(&lt;\/?)([\w-]+)/g, '$1<span class="rve-token-tag">$2</span>')
+    .replace(/([\w:-]+)=(&quot;[^&]*&quot;)/g, '<span class="rve-token-attr">$1</span>=<span class="rve-token-string">$2</span>');
+}
 
 export function Panel(props: { controller: EditorController; snapshot: EditorSnapshot }) {
   const selection = props.snapshot.selection;
   const [cssViewMode, setCssViewMode] = useState<CssViewMode>('defined');
   const [cssQuery, setCssQuery] = useState('');
   const [showMenu, setShowMenu] = useState(false);
-  const [showMinMaxMenu, setShowMinMaxMenu] = useState(false);
   const [collapsed, setCollapsed] = useState<Record<CollapsedKey, boolean>>({
-    transform: false,
     background: true,
     border: true,
     shadow: true,
@@ -53,24 +33,7 @@ export function Panel(props: { controller: EditorController; snapshot: EditorSna
     setCssViewMode('defined');
     setCssQuery('');
     setShowMenu(false);
-    setShowMinMaxMenu(false);
   }, [selection?.context.selector]);
-
-  // All useMemo calls must be before any early return to avoid hooks-in-conditional violations
-  const cssEntries = useMemo<CssInspectorEntry[]>(() => {
-    if (!selection) return [] as CssInspectorEntry[];
-    const sourceEntries = cssViewMode === 'defined' ? selection.css.defined : selection.css.computed;
-    const query = cssQuery.trim().toLowerCase();
-    if (!query) return sourceEntries;
-    return sourceEntries.filter((entry) =>
-      entry.property.toLowerCase().includes(query) ||
-      entry.value.toLowerCase().includes(query) ||
-      entry.source?.toLowerCase().includes(query)
-    );
-  }, [cssQuery, cssViewMode, selection?.css.computed, selection?.css.defined]);
-
-  const shadow = useMemo(() => parseBoxShadow(selection?.values['box-shadow'] ?? ''), [selection?.values['box-shadow']]);
-  const transform = useMemo(() => parseTransformValue(selection?.values['transform'] ?? ''), [selection?.values['transform']]);
 
   if (!selection || !props.snapshot.isPanelOpen) {
     return null;
@@ -78,6 +41,19 @@ export function Panel(props: { controller: EditorController; snapshot: EditorSna
 
   const values = selection.values;
   const changes = selection.context.changes;
+  const cssEntries = useMemo(() => {
+    const sourceEntries = cssViewMode === 'defined' ? selection.css.defined : selection.css.computed;
+    const query = cssQuery.trim().toLowerCase();
+    if (!query) {
+      return sourceEntries;
+    }
+
+    return sourceEntries.filter((entry) =>
+      entry.property.toLowerCase().includes(query) ||
+      entry.value.toLowerCase().includes(query) ||
+      entry.source?.toLowerCase().includes(query)
+    );
+  }, [cssQuery, cssViewMode, selection.css.computed, selection.css.defined]);
 
   const displayType = values['display'] === 'grid' ? 'grid' : 'stack';
   const panelLayout = props.snapshot.panelLayout;
@@ -90,12 +66,9 @@ export function Panel(props: { controller: EditorController; snapshot: EditorSna
   const opacityPercent = Math.round((Number.parseFloat(values['opacity'] || '1') || 1) * 100);
   const radiusValue = parseUnitValue(values['border-radius']).value ?? 0;
   const fontSizeValue = parseUnitValue(values['font-size']).value ?? 14;
+  const shadow = useMemo(() => parseBoxShadow(values['box-shadow']), [values]);
   const gridColumns = getGridTrackCount(values['grid-template-columns']) ?? 4;
   const gridRows = getGridTrackCount(values['grid-template-rows']) ?? 2;
-  const minMaxKeys = MIN_MAX_OPTIONS
-    .map((option) => option.value)
-    .filter((property) => isActiveMinMaxValue(property, values[property]));
-  const availableMinMaxOptions = MIN_MAX_OPTIONS.filter((option) => !minMaxKeys.includes(option.value));
 
   const setValue = (property: string, value: string) => props.controller.updateStyle(property, value);
   const panelStyle = isHorizontalDock ? { width: `${panelLayout.size}px` } : { height: `${panelLayout.size}px` };
@@ -216,7 +189,7 @@ export function Panel(props: { controller: EditorController; snapshot: EditorSna
               </InspectorRow>
             </InspectorSection>
 
-            <InspectorSection title="Size">
+            <InspectorSection title="Size" action="+">
               <InspectorRow label="Width">
                 <DualControlRow>
                   <TextControl value={values['width']} onChange={(value) => setValue('width', value)} />
@@ -229,45 +202,12 @@ export function Panel(props: { controller: EditorController; snapshot: EditorSna
                   <SimpleSelect value="fit" options={[toOption('fill', 'Fill'), toOption('fit', 'Fit'), toOption('fixed', 'Fixed')]} disabled />
                 </DualControlRow>
               </InspectorRow>
-              {minMaxKeys.map((property) => (
-                <InspectorRow key={property} label={MIN_MAX_OPTIONS.find((option) => option.value === property)?.label ?? property}>
-                  <DualControlRow>
-                    <TextControl value={values[property]} onChange={(value) => setValue(property, value)} />
-                    <SimpleSelect value="fixed" options={[toOption('fill', 'Fill'), toOption('fit', 'Fit'), toOption('fixed', 'Fixed')]} disabled />
-                  </DualControlRow>
-                </InspectorRow>
-              ))}
-              {availableMinMaxOptions.length > 0 ? (
-                <InspectorRow label="Min Max">
-                  <div className="rve-add-control-wrap">
-                    <button
-                      type="button"
-                      className="rve-add-control"
-                      onClick={() => setShowMinMaxMenu((value) => !value)}
-                    >
-                      <IconGhost>↔</IconGhost>
-                      <span>Add...</span>
-                    </button>
-                    {showMinMaxMenu ? (
-                      <div className="rve-add-menu">
-                        {availableMinMaxOptions.map((option) => (
-                          <button
-                            key={option.value}
-                            type="button"
-                            className="rve-add-menu-item"
-                            onClick={() => {
-                              setShowMinMaxMenu(false);
-                              setValue(option.value, getDefaultMinMaxValue(option.value));
-                            }}
-                          >
-                            {option.label}
-                          </button>
-                        ))}
-                      </div>
-                    ) : null}
-                  </div>
-                </InspectorRow>
-              ) : null}
+              <InspectorRow label="Min Max">
+                <DualControlRow>
+                  <IconGhost>↔</IconGhost>
+                  <TextControl value="" placeholder="Add..." disabled onChange={() => {}} />
+                </DualControlRow>
+              </InspectorRow>
             </InspectorSection>
 
             <InspectorSection title="Layout">
@@ -319,26 +259,12 @@ export function Panel(props: { controller: EditorController; snapshot: EditorSna
                   disabled={isGrid}
                 />
               </InspectorRow>
-              {!isGrid ? (
-                <InspectorRow label="Gap">
-                  <DualControlRow>
-                    <InlineNumberWithIcon icon="↔" value={values['column-gap']} onChange={(value) => setValue('column-gap', value)} />
-                    <InlineNumberWithIcon icon="↕" value={values['row-gap']} onChange={(value) => setValue('row-gap', value)} />
-                  </DualControlRow>
-                </InspectorRow>
-              ) : null}
-              {isGrid ? (
-                <GridOverview
-                  columns={gridColumns}
-                  rows={gridRows}
-                  columnGap={values['column-gap']}
-                  rowGap={values['row-gap']}
-                  onColumnsChange={(value) => setValue('grid-template-columns', `repeat(${Math.max(1, value)}, minmax(0, 1fr))`)}
-                  onRowsChange={(value) => setValue('grid-template-rows', `repeat(${Math.max(1, value)}, minmax(0, 1fr))`)}
-                  onColumnGapChange={(value) => setValue('column-gap', value)}
-                  onRowGapChange={(value) => setValue('row-gap', value)}
-                />
-              ) : null}
+              <InspectorRow label="Gap">
+                <DualControlRow>
+                  <InlineNumberWithIcon icon="↔" value={values['column-gap']} onChange={(value) => setValue('column-gap', value)} />
+                  <InlineNumberWithIcon icon="↕" value={values['row-gap']} onChange={(value) => setValue('row-gap', value)} />
+                </DualControlRow>
+              </InspectorRow>
             </InspectorSection>
 
             <BoxModelSection
@@ -365,6 +291,24 @@ export function Panel(props: { controller: EditorController; snapshot: EditorSna
               onChange={(side, value) => setValue(`margin-${side}`, value)}
             />
 
+            <InspectorSection title="Grid Structure">
+              <InspectorRow label="Columns">
+                <StepperControl
+                  value={gridColumns}
+                  onChange={(value) => setValue('grid-template-columns', `repeat(${Math.max(1, value)}, minmax(0, 1fr))`)}
+                  disabled={!isGrid}
+                />
+              </InspectorRow>
+              <InspectorRow label="Rows">
+                <StepperControl
+                  value={gridRows}
+                  onChange={(value) => setValue('grid-template-rows', `repeat(${Math.max(1, value)}, minmax(0, 1fr))`)}
+                  disabled={!isGrid}
+                />
+              </InspectorRow>
+              <GridPreview columns={gridColumns} rows={gridRows} disabled={!isGrid} />
+            </InspectorSection>
+
             <InspectorSection title="Appearance">
               <DualFieldRow
                 leftLabel="Opacity"
@@ -373,74 +317,6 @@ export function Panel(props: { controller: EditorController; snapshot: EditorSna
                 rightControl={<InlineNumberWithUnit value={`${radiusValue}px`} unit="px" onChange={(value) => setValue('border-radius', value)} />}
               />
             </InspectorSection>
-
-            <CollapsibleSection
-              title="Transforms"
-              collapsed={collapsed.transform}
-              onToggle={() => setCollapsed((current) => ({ ...current, transform: !current.transform }))}
-            >
-              <InspectorRow label="Rotate" leading="+">
-                <DualControlRow>
-                  <InlineNumberWithUnit
-                    value={`${transform.rotate}deg`}
-                    unit="deg"
-                    disabled={transform.mode === '3d'}
-                    onChange={(value) => {
-                      const next = parseTransformValue(values['transform'] || '');
-                      next.mode = '2d';
-                      next.rotate = stripUnit(value, 'deg');
-                      setValue('transform', stringifyTransformValue(next));
-                    }}
-                  />
-                  <SegmentedControl
-                    value={transform.mode}
-                    options={[toOption('2d', '2D'), toOption('3d', '3D')]}
-                    onChange={(value) => {
-                      const next = parseTransformValue(values['transform'] || '');
-                      next.mode = value as '2d' | '3d';
-                      setValue('transform', stringifyTransformValue(next));
-                    }}
-                  />
-                </DualControlRow>
-              </InspectorRow>
-              {transform.mode === '3d' ? (
-                <div className="rve-transform-axis-grid">
-                  {([
-                    ['rotateX', 'X'],
-                    ['rotateY', 'Y'],
-                    ['rotateZ', 'Z']
-                  ] as const).map(([key, label]) => (
-                    <div key={key} className="rve-transform-axis-cell">
-                      <input
-                        className="rve-inspector-input"
-                        value={transform[key].replace('deg', '')}
-                        onInput={(event) => {
-                          const next = parseTransformValue(values['transform'] || '');
-                          next.mode = '3d';
-                          next[key] = (event.currentTarget as HTMLInputElement).value.trim() || '0';
-                          setValue('transform', stringifyTransformValue(next));
-                        }}
-                      />
-                      <span className="rve-transform-axis-label">{label}</span>
-                    </div>
-                  ))}
-                </div>
-              ) : null}
-              <InspectorRow label="Perspective" leading="+">
-                <DualControlRow>
-                  <TextControl value={values['perspective']} onChange={(value) => setValue('perspective', value)} />
-                  <input
-                    className="rve-range"
-                    type="range"
-                    min="0"
-                    max="3000"
-                    step="1"
-                    value={String((parseUnitValue(values['perspective']).value ?? Number.parseFloat(values['perspective'])) || 0)}
-                    onInput={(event) => setValue('perspective', (event.currentTarget as HTMLInputElement).value)}
-                  />
-                </DualControlRow>
-              </InspectorRow>
-            </CollapsibleSection>
 
             <InspectorSection title="Text">
               <DualControlRow>
@@ -601,25 +477,362 @@ export function Panel(props: { controller: EditorController; snapshot: EditorSna
   );
 }
 
-function isActiveMinMaxValue(property: string, value: string): boolean {
-  const normalized = value.trim().toLowerCase();
-  if (!normalized) {
-    return false;
-  }
-
-  if (property === 'min-width' || property === 'min-height') {
-    return normalized !== '0px' && normalized !== '0' && normalized !== 'auto';
-  }
-
-  return normalized !== 'none' && normalized !== 'auto';
+function CssInspector(props: {
+  entries: CssInspectorEntry[];
+  viewMode: CssViewMode;
+  query: string;
+  onQueryChange: (value: string) => void;
+  onViewModeChange: (value: CssViewMode) => void;
+  onValueChange: (property: string, value: string) => void;
+}) {
+  return (
+    <section className="rve-section rve-css-section">
+      <div className="rve-css-toolbar">
+        <div className="rve-tab-strip">
+          <button type="button" className="rve-chip" data-active={props.viewMode === 'defined'} onClick={() => props.onViewModeChange('defined')}>
+            Defined
+          </button>
+          <button type="button" className="rve-chip" data-active={props.viewMode === 'computed'} onClick={() => props.onViewModeChange('computed')}>
+            Computed
+          </button>
+        </div>
+        <input
+          className="rve-input rve-css-search"
+          placeholder="Filter properties"
+          value={props.query}
+          onInput={(event) => props.onQueryChange((event.currentTarget as HTMLInputElement).value)}
+        />
+      </div>
+      <div className="rve-css-list">
+        {props.entries.length > 0 ? (
+          props.entries.map((entry) => (
+            <div className="rve-css-row" data-changed={entry.changed ? 'true' : 'false'} key={`${entry.property}:${entry.source ?? 'computed'}`}>
+              <div className="rve-css-property">{entry.property}</div>
+              <div className="rve-css-value-wrap">
+                <CssValueEditor entry={entry} onChange={(value) => props.onValueChange(entry.property, value)} />
+                {entry.source ? <div className="rve-css-source" title={entry.source}>{entry.source}</div> : null}
+              </div>
+            </div>
+          ))
+        ) : (
+          <div className="rve-help-text">No CSS properties matched this filter.</div>
+        )}
+      </div>
+    </section>
+  );
 }
 
-function getDefaultMinMaxValue(property: string): string {
-  if (property === 'max-width' || property === 'max-height') {
-    return '320px';
+function CssValueEditor(props: {
+  entry: CssInspectorEntry;
+  onChange: (value: string) => void;
+}) {
+  const kind = getCssValueKind(props.entry.property, props.entry.value);
+  const [draft, setDraft] = useState(props.entry.value);
+
+  useEffect(() => {
+    setDraft(props.entry.value);
+  }, [props.entry.value]);
+
+  const commit = (nextValue: string) => {
+    const normalizedValue = nextValue.trim();
+    setDraft(normalizedValue);
+    props.onChange(normalizedValue);
+  };
+
+  if (kind === 'color') {
+    return <ColorTextControl value={draft} onChange={(value) => { setDraft(value); props.onChange(value); }} />;
   }
 
-  return '100px';
+  return (
+    <input
+      className="rve-css-inline-input"
+      value={draft}
+      title={draft}
+      onInput={(event) => setDraft((event.currentTarget as HTMLInputElement).value)}
+      onBlur={() => commit(draft)}
+      onKeyDown={(event) => {
+        if (kind === 'number' && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) {
+          const nextValue = adjustNumericCssValue(props.entry.property, draft, event.key === 'ArrowUp' ? 1 : -1, {
+            shiftKey: event.shiftKey,
+            altKey: event.altKey
+          });
+
+          if (nextValue) {
+            event.preventDefault();
+            setDraft(nextValue);
+            props.onChange(nextValue);
+          }
+        }
+
+        if (event.key === 'Enter') {
+          commit(draft);
+        }
+
+        if (event.key === 'Escape') {
+          setDraft(props.entry.value);
+        }
+      }}
+    />
+  );
+}
+
+function InspectorSection(props: { title: string; children: ComponentChildren; action?: string }) {
+  return (
+    <section className="rve-inspector-section">
+      <div className="rve-inspector-section-header">
+        <h3>{props.title}</h3>
+        {props.action ? <button type="button" className="rve-section-action" disabled>{props.action}</button> : null}
+      </div>
+      <div className="rve-inspector-section-body">{props.children}</div>
+    </section>
+  );
+}
+
+function CollapsibleSection(props: { title: string; children: ComponentChildren; collapsed: boolean; onToggle: () => void }) {
+  return (
+    <section className="rve-inspector-section">
+      <button type="button" className="rve-collapse-toggle" onClick={props.onToggle}>
+        <span>{props.title}</span>
+        <span>{props.collapsed ? '+' : '−'}</span>
+      </button>
+      {!props.collapsed ? <div className="rve-inspector-section-body">{props.children}</div> : null}
+    </section>
+  );
+}
+
+function InspectorRow(props: { label: string; children: ComponentChildren }) {
+  return (
+    <div className="rve-inspector-row">
+      <div className="rve-inspector-label">{props.label}</div>
+      <div className="rve-inspector-control">{props.children}</div>
+    </div>
+  );
+}
+
+function DualFieldRow(props: {
+  leftLabel: string;
+  leftControl: ComponentChildren;
+  rightLabel?: string;
+  rightControl?: ComponentChildren;
+}) {
+  return (
+    <div className="rve-inspector-dual">
+      <div className="rve-inspector-dual-item">
+        <div className="rve-inspector-sub-label">{props.leftLabel}</div>
+        {props.leftControl}
+      </div>
+      {props.rightControl ? (
+        <div className="rve-inspector-dual-item">
+          <div className="rve-inspector-sub-label">{props.rightLabel}</div>
+          {props.rightControl}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function DualControlRow(props: { children: ComponentChildren }) {
+  return <div className="rve-dual-control">{props.children}</div>;
+}
+
+function TextControl(props: { value: string; onChange: (value: string) => void; placeholder?: string; disabled?: boolean }) {
+  return (
+    <input
+      className="rve-inspector-input"
+      value={props.value}
+      placeholder={props.placeholder}
+      disabled={props.disabled}
+      onInput={(event) => props.onChange((event.currentTarget as HTMLInputElement).value)}
+    />
+  );
+}
+
+function SimpleSelect(props: {
+  value: string;
+  options: Array<{ value: string; label: string }>;
+  onChange?: (value: string) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <select
+      className="rve-inspector-select"
+      value={props.value}
+      disabled={props.disabled}
+      onChange={(event) => props.onChange?.((event.currentTarget as HTMLSelectElement).value)}
+    >
+      {props.options.map((option) => (
+        <option key={option.value} value={option.value}>{option.label}</option>
+      ))}
+    </select>
+  );
+}
+
+function SegmentedControl(props: {
+  value: string;
+  options: Array<{ value: string; label: string }>;
+  onChange: (value: string) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <div className="rve-segmented" data-disabled={props.disabled ? 'true' : 'false'}>
+      {props.options.map((option) => (
+        <button
+          key={option.value}
+          type="button"
+          className="rve-segmented-button"
+          data-active={props.value === option.value ? 'true' : 'false'}
+          disabled={props.disabled}
+          onClick={() => props.onChange(option.value)}
+        >
+          {option.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function IconGhost(props: { children: ComponentChildren }) {
+  return <span className="rve-icon-ghost">{props.children}</span>;
+}
+
+function InlineNumberWithIcon(props: { icon: string; value: string; onChange: (value: string) => void }) {
+  return (
+    <div className="rve-inline-with-icon">
+      <span className="rve-icon-ghost">{props.icon}</span>
+      <InlineNumberWithUnit value={props.value} unit="px" onChange={props.onChange} />
+    </div>
+  );
+}
+
+function InlineNumberWithUnit(props: { value: string; unit: string; onChange: (value: string) => void; disabled?: boolean }) {
+  const parsed = parseUnitValue(props.value);
+  const displayValue = parsed.value === null ? props.value.replace(props.unit, '') : String(parsed.value);
+
+  return (
+    <div className="rve-inline-unit">
+      <input
+        className="rve-inspector-input"
+        value={displayValue}
+        disabled={props.disabled}
+        onInput={(event) => {
+          const next = (event.currentTarget as HTMLInputElement).value.trim();
+          props.onChange(next ? `${next}${props.unit}` : '');
+        }}
+      />
+      <span className="rve-inline-unit-label">{props.unit}</span>
+    </div>
+  );
+}
+
+function StepperControl(props: { value: number; onChange: (value: number) => void; disabled?: boolean }) {
+  return (
+    <div className="rve-stepper">
+      <button type="button" className="rve-stepper-button" disabled={props.disabled} onClick={() => props.onChange(props.value - 1)}>−</button>
+      <div className="rve-stepper-value">{props.value}</div>
+      <button type="button" className="rve-stepper-button" disabled={props.disabled} onClick={() => props.onChange(props.value + 1)}>+</button>
+    </div>
+  );
+}
+
+function GridPreview(props: { columns: number; rows: number; disabled?: boolean }) {
+  const total = Math.max(1, Math.min(12, props.columns)) * Math.max(1, Math.min(4, props.rows));
+  return (
+    <div className="rve-grid-preview" data-disabled={props.disabled ? 'true' : 'false'}>
+      {Array.from({ length: total }).map((_, index) => (
+        <span key={index} className="rve-grid-preview-cell" />
+      ))}
+    </div>
+  );
+}
+
+function BoxModelSection(props: {
+  title: string;
+  expanded: boolean;
+  values: { top: string; right: string; bottom: string; left: string };
+  onChange: (side: 'top' | 'right' | 'bottom' | 'left', value: string) => void;
+}) {
+  const shorthandValue = compressBoxValues(props.values);
+
+  return (
+    <InspectorSection title={props.title}>
+      <div className="rve-box-model">
+        <div className="rve-box-model-toolbar">
+          <span className="rve-box-model-hint">{props.expanded ? 'Separate sides' : 'All sides'}</span>
+        </div>
+        {props.expanded ? (
+          <div className="rve-box-model-grid">
+            {([
+              ['top', 'T'],
+              ['right', 'R'],
+              ['bottom', 'B'],
+              ['left', 'L']
+            ] as const).map(([side, label]) => (
+              <div key={side} className="rve-box-model-cell">
+                <input
+                  className="rve-inspector-input"
+                  value={props.values[side]}
+                  onInput={(event) => props.onChange(side, (event.currentTarget as HTMLInputElement).value)}
+                />
+                <span className="rve-box-model-label">{label}</span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <input
+            className="rve-inspector-input"
+            value={shorthandValue}
+            onInput={(event) => {
+              const next = (event.currentTarget as HTMLInputElement).value;
+              props.onChange('top', next);
+              props.onChange('right', next);
+              props.onChange('bottom', next);
+              props.onChange('left', next);
+            }}
+          />
+        )}
+      </div>
+    </InspectorSection>
+  );
+}
+
+function ColorTextControl(props: { value: string; onChange: (value: string) => void }) {
+  const [rawValue, setRawValue] = useState(props.value);
+
+  useEffect(() => {
+    setRawValue(props.value);
+  }, [props.value]);
+
+  return (
+    <div className="rve-color-control">
+      <input
+        className="rve-css-color-input"
+        type="color"
+        value={colorStringToHex(props.value)}
+        onInput={(event) => {
+          const nextValue = (event.currentTarget as HTMLInputElement).value;
+          setRawValue(nextValue);
+          props.onChange(nextValue);
+        }}
+      />
+      <input
+        className="rve-inspector-input"
+        value={rawValue}
+        onInput={(event) => {
+          const nextValue = (event.currentTarget as HTMLInputElement).value;
+          setRawValue(nextValue);
+          props.onChange(nextValue);
+        }}
+      />
+    </div>
+  );
+}
+
+function toOption(value: string, label = capitalize(value)): { value: string; label: string } {
+  return { value, label };
+}
+
+function capitalize(value: string): string {
+  return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
 function getGridTrackCount(value: string): number | null {
@@ -634,4 +847,12 @@ function getGridTrackCount(value: string): number | null {
   }
 
   return trimmed.split(/\s+/).filter(Boolean).length || null;
+}
+
+function compressBoxValues(values: { top: string; right: string; bottom: string; left: string }): string {
+  if (values.top === values.right && values.top === values.bottom && values.top === values.left) {
+    return values.top;
+  }
+
+  return [values.top, values.right, values.bottom, values.left].join(' ').trim();
 }
